@@ -2,7 +2,7 @@ import pygame
 import socket
 import pickle
 
-from config import *
+from config.config import *
 
         
 class Game():
