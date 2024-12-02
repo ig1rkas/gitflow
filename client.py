@@ -8,8 +8,7 @@ from math import *
 
 
 class Menu():
-    def __init__(self,) -> None:
-        global game
+    def __init__(self) -> None:
         pygame.init()
         # main config
         # main options
@@ -21,7 +20,7 @@ class Menu():
         self.x_start = 400
         self.y_start = 200  
         self.degree = 0
-        self.game = game
+        
         
     
 
@@ -35,7 +34,11 @@ class Menu():
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
                     self.running = False
-                    self.game.run()
+                    try:
+                        self.game.run()
+                    except:
+                        self.game = Game()
+                        self.game.run()
                     
                 
            
@@ -73,12 +76,15 @@ class Game():
 
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client.connect((HOST, PORT))
-        self.x, self.y = 50, 50
         self.clock = pygame.time.Clock()
-        self.right, self.left, self.up, self.down = 0, 0, 0, 0
         
         hero = pygame.image.load(hero_img)
-        self.hero = pygame.transform.scale(hero, (100, 100))
+        self.hero = pygame.transform.scale(hero, HERO_SIZE)
+        self.x, self.y = 0, 0
+        self.right, self.left, self.up, self.down = 0, 0, 0, 0
+        
+        self.bg = pygame.image.load(bg_img)
+        self.bg_x, self.bg_y = 570, 290
 
     def send_position(self, pos):
         self.client.sendall(pickle.dumps(pos))
@@ -116,15 +122,18 @@ class Game():
                     self.down = 0
                         
     def update(self):
-        if self.right:
-            if self.x < SIZE[0] - 100:
-                self.x += 10
+        if self.right and self.x < 3970:
+            self.x += 10
+            self.bg_x -= 10
         if self.left and self.x > 0:
             self.x -= 10
+            self.bg_x += 10
         if self.up and self.y > 0:
             self.y -= 10
-        if self.down and self.y < SIZE[1] - 100:
+            self.bg_y += 10
+        if self.down and self.y < 4200:
             self.y += 10
+            self.bg_y -= 10
             
         self.send_position((self.x, self.y))
 
@@ -143,10 +152,14 @@ class Game():
             self.win.fill((0, 0, 0))
             
             # Рисуем всех игроков
-            for player in self.players.values():
-                self.win.blit(self.hero, (player[0], player[1]))
-
-            # Рисуем текущего игрока
+            self.win.blit(self.bg, (self.bg_x, self.bg_y))
+            for x, y in self.players.values():
+                if (x, y) == (self.x, self.y): #если текущий
+                    self.win.blit(self.hero, (SIZE[0] // 2 - HERO_SIZE[0] // 2, SIZE[1] // 2 - HERO_SIZE[1] // 2))
+                    continue
+                else:
+                    self.win.blit(self.hero, (self.bg_x + x, self.bg_y + y))
+                    
 
             pygame.display.update()
             self.clock.tick(60)
@@ -158,5 +171,4 @@ class Game():
             self.render()
 
 if __name__ == "__main__":
-    game = Game()
     Menu().run()
