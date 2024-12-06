@@ -9,7 +9,7 @@ players = {}
 
 def handle_client(conn, addr):
     print(f"[NEW CONNECTION] {addr} connected.")
-    players[addr] = (50, 50)  # Начальные координаты игрока
+    players[addr] = (50, 50, None)  # Начальные координаты игрока
 
     while True:
         try:
