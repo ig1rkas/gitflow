@@ -1,6 +1,8 @@
 import pygame
 import socket
 import pickle
+import time
+import asyncio
 
 from config import *
 from math import *
@@ -144,6 +146,12 @@ class Game():
         self.win = pygame.display.set_mode(SIZE)
         self.running = True
         self.name = name
+        self.chatActive = False
+        self.isNetGraphShown = False
+        self.shownText = ''
+        self.chatSendMessage = ''
+        self.pps = 0
+        self.shownPps = 0
 
         self.client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.client.connect((HOST, PORT))
@@ -162,6 +170,7 @@ class Game():
 
     def send_packeges(self, packege: tuple):
         self.client.sendall(pickle.dumps(packege))
+        asyncio.sleep(0.05)
 
     def check_move(self, hitboxes: list, x: int, y: int, move_x: int, move_y: int, size: tuple) -> bool:
         hitboxes += self.hitboxes
@@ -180,16 +189,34 @@ class Game():
                 pygame.quit()
 
             if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_d:
-                    self.right = 1
-                if event.key == pygame.K_a:
-                    self.left = 1
-                if event.key == pygame.K_w:
-                    self.up = 1
-                if event.key == pygame.K_s:
-                    self.down = 1
-                if event.key == pygame.K_ESCAPE:
-                    Menu().run()
+                if self.chatActive is False:
+                    if event.key == pygame.K_d:
+                        self.right = 1
+                    if event.key == pygame.K_a:
+                        self.left = 1
+                    if event.key == pygame.K_w:
+                        self.up = 1
+                    if event.key == pygame.K_s:
+                        self.down = 1
+                    if event.key == pygame.K_ESCAPE:
+                        Menu().run()
+                    if event.key == pygame.K_F7:
+                        self.isNetGraphShown = not self.isNetGraphShown
+                    if event.key == pygame.K_t:
+                        self.chatActive = not self.chatActive
+                else:
+                    if event.key == pygame.K_RETURN:
+                        self.chatActive = not self.chatActive
+                        self.chatSendMessage = self.shownText 
+                        self.shownText = ''
+                    elif event.key == pygame.K_BACKSPACE:
+                        self.shownText = self.shownText[:-1]
+                    elif event.key == pygame.K_ESCAPE:
+                        self.chatActive = not self.chatActive
+                        self.shownText = ''
+                    else:
+                        self.shownText += event.unicode
+
 
             if event.type == pygame.KEYUP:
                 if event.key == pygame.K_d:
@@ -204,28 +231,37 @@ class Game():
     def update(self):
         hitboxes = [[i[0], i[1], i[0] + HERO_SIZE[0], i[1] + HERO_SIZE[1]]
                     for i in self.players.values() if i[2] != self.name]
-        if self.right and self.x < 3970:
+        if self.right and self.x < 5500:
             if self.check_move(hitboxes, self.x, self.y, 10, 0, HERO_SIZE):
                 self.x += 10
                 self.bg_x -= 10
-        if self.left and self.x > 0:
+        if self.left and self.x > 820:
             if self.check_move(hitboxes, self.x, self.y, -10, 0, HERO_SIZE):
                 self.x -= 10
                 self.bg_x += 10
-        if self.up and self.y > 0:
+        if self.up and self.y > 70:
             if self.check_move(hitboxes, self.x, self.y, 0, -10, HERO_SIZE):
                 self.y -= 10
                 self.bg_y += 10
-        if self.down and self.y < 4200:
+        if self.down and self.y < 3930:
             if self.check_move(hitboxes, self.x, self.y, 0, 10, HERO_SIZE):
                 self.y += 10
                 self.bg_y -= 10
 
-        self.send_packeges((self.x, self.y, self.name))
+        self.send_packeges((self.x, self.y, self.name, self.chatSendMessage))
+        self.chatSendMessage = ''
+        if self.pps == 0:
+            self.ppsStart = time.time()
+        self.pps += 1
+        self.pingStart = time.time()
+        
 
         # Читаем позиции всех игроков из сервера
         try:
-            self.players = pickle.loads(self.client.recv(4096))
+            self.serverRequests = pickle.loads(self.client.recv(1024))
+            self.chatHistory = self.serverRequests[1]
+            self.players = self.serverRequests[0]
+            self.pingEnd = time.time()
         except Exception as e:
             print(f"[ERROR] {e}")
             self.players = {}
@@ -238,13 +274,111 @@ class Game():
         self.win.blit(self.bg, (self.bg_x, self.bg_y))
         self.win.blit(
             self.hero, (SIZE[0] // 2 - HERO_SIZE[0] // 2, SIZE[1] // 2 - HERO_SIZE[1] // 2))
-        for x, y, name in self.players.values():
+        for x, y, name, message in self.players.values():
             if name == self.name:
                 continue
             self.win.blit(self.hero, (self.bg_x + x + 20, self.bg_y + y + 20))
 
+        self.chatSurface = pygame.Surface((325,300))
+        self.chatSurface.fill((255, 255, 255))
+        
+
+        self.inputChatSurface = pygame.Surface((325,25))
+        self.inputChatSurface.fill((255, 255, 255))
+
+        font = pygame.font.Font(definedFonts[0], 24)
+        
+        if self.chatActive is True:
+            color = (255, 255, 255)
+            chatOpacity = 50
+        else:
+            color = (0, 0, 0)
+            chatOpacity = 0
+
+        txt_surface = font.render(self.shownText[-20:], True, color)
+        
+        self.chatSurface.set_alpha(chatOpacity)
+        self.inputChatSurface.set_alpha(chatOpacity * 1.5)
+        self.win.blit(txt_surface, (SIZE[0] - 325, 300))
+        self.chatText_y, self.chatText_delta_y = 0, 25
+
+        for message in self.chatHistory[-5:]:
+            if len(message[1]) > 18:
+                self.print_text(message=f'{message[0]}: {message[1][:17-len(message[0])]}',
+                            x=(SIZE[0] - 325),
+                            y=self.chatText_y,
+                            font_color=(255,255,255),
+                            font_size=24,
+                            font_type=definedFonts[0]
+                            )
+                msg = message[1][17-len(message[0]):]
+                print(msg)
+                print(len(msg) // 18)
+                self.chatText_y += self.chatText_delta_y   
+                for i in range((len(msg) // 18) + 1):
+                    self.print_text(message=f'{msg[(19*i):(19*(i+1))]}',
+                            x=(SIZE[0] - 325),
+                            y=self.chatText_y,
+                            font_color=(255,255,255),
+                            font_size=24,
+                            font_type=definedFonts[0]
+                            )  
+                    self.chatText_y += self.chatText_delta_y 
+            else:
+                self.print_text(message=f'{message[0]}: {message[1]}',
+                                x=(SIZE[0] - 325),
+                                y=self.chatText_y,
+                                font_color=(255,255,255),
+                                font_size=24,
+                                font_type=definedFonts[0]
+                                )
+                self.chatText_y += self.chatText_delta_y
+
+        if self.isNetGraphShown is True:
+            self.pingTime = self.pingEnd - self.pingStart
+            self.print_text(
+                message=f'Ping: {round(self.pingTime * 1000)}',
+                x=0,
+                y=(SIZE[1] - 24),
+                font_color=(255, 255, 255),
+                font_size=24,
+                font_type=definedFonts[0]
+            )
+
+            self.print_text(
+                message=f'FPS: {round(self.clock.get_fps())}',
+                x=0,
+                y=(SIZE[1] - 48),
+                font_color=(255, 255, 255),
+                font_size=24,
+                font_type=definedFonts[0]
+            )
+
+            if (time.time() - self.ppsStart) > 1:
+                self.shownPps = self.pps
+                self.pps = 0
+
+            self.print_text(
+                message=f'PPS: {(self.shownPps)}',
+                x=0,
+                y=(SIZE[1] - 72),
+                font_color=(255, 255, 255),
+                font_size=24,
+                font_type=definedFonts[0]
+            )
+
+        self.win.blit(self.chatSurface, (SIZE[0] - 325, 0))
+        self.win.blit(self.inputChatSurface, (SIZE[0] - 325, 300))
+
         pygame.display.update()
         self.clock.tick(60)
+        
+
+    def print_text(self, message, x, y, font_color=(0, 0, 0), font_size=60, font_type=None, degree=0):
+        self.font_type = pygame.font.Font(font_type, font_size)
+        self.text = self.font_type.render(message, True, font_color)
+        self.text = pygame.transform.rotate(self.text, degree)
+        self.win.blit(self.text, (x, y))
 
     def run(self):
         while self.running:
